@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import UploadZone from './components/UploadZone';
+import UploadZone from './components/UploadZone/UploadZone';
 
 const FILETYPE_LABEL: Record<string, string> = {
   customers: 'Customer List (.csv)',

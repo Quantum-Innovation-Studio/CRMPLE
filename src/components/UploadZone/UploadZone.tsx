@@ -1,6 +1,6 @@
-import { useCallback, useState, useRef } from 'react';
-import { writeCustomers, writeDelistEvents, writeScanData, logUpload } from '../lib/firebase';
-import { parseCustomerCSV } from '../lib/parsers';
+import { useState, useCallback, useRef } from 'react';
+import { writeCustomers, logUpload } from '../../lib/firebase';
+import { parseCustomerCSV } from '../../lib/parsers';
 
 interface UploadZoneProps {
   fileType: 'customers' | 'alm' | 'ontap';
@@ -29,16 +29,19 @@ export default function UploadZone({ fileType, onParsed }: UploadZoneProps) {
     setFileName(file.name);
     try {
       const raw = await file.text();
-      // Phase 1 — customer CSV only for now
       if (fileType !== 'customers') {
         onParsed(fileType, 0, ['Parser not yet implemented for this file type.']);
         setBusy(false);
         return;
       }
       const result = parseCustomerCSV(raw);
-      // If we had Firebase configured, writeCustomers(result.rows) would go here
-      await logUpload('customers', file.name, result.rows.length, result.errors);
-      await writeCustomers(result.rows);
+      // Firebase write — will work once env vars are set
+      try {
+        const count = await writeCustomers(result.rows);
+        await logUpload('customers', file.name, count, result.errors);
+      } catch (fbErr) {
+        result.errors.push(`Firebase write failed: ${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
+      }
       onParsed('customers', result.rows.length, result.errors);
     } catch (e: unknown) {
       onParsed(fileType, 0, [e instanceof Error ? e.message : 'Unknown error']);
@@ -50,11 +53,6 @@ export default function UploadZone({ fileType, onParsed }: UploadZoneProps) {
     e.preventDefault();
     setDragging(false);
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  }, [handleFile]);
-
-  const onInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
     if (file) handleFile(file);
   }, [handleFile]);
 
@@ -75,8 +73,8 @@ export default function UploadZone({ fileType, onParsed }: UploadZoneProps) {
         ref={inputRef}
         type="file"
         accept={ACCEPT[fileType]}
-        onChange={onInput}
         className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
       />
       <div className="text-4xl mb-3">📁</div>
       <p className="font-medium">

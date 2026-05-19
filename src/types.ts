@@ -6,7 +6,7 @@ export interface Customer {
   rep_name: string;
   category: string;
   address: string;
-  created_at: unknown; // Firestore Timestamp — access via toDate()
+  created_at: unknown; // Firestore Timestamp
 }
 
 export interface DelistEvent {
@@ -31,8 +31,9 @@ export interface ScanData {
   venue_name: string;
   sku_code: string;
   units_sold: number;
-  period: string; // ISO date or week label
+  period: string;
   upload_date: unknown;
+  product_description?: string;
 }
 
 export interface UploadLogEntry {
