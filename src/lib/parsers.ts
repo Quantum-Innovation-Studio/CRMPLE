@@ -68,6 +68,21 @@ export function parseCustomerCSV(raw: string): ParseResult<Customer> {
   return { rows, errors };
 }
 
+// ── helpers ─────────────────────────────────────────────────+
+// ALM effective dates come as YYYYMMDD — normalise to DD/MM/YYYY
+function normalizeAlmDate(raw: string): string {
+  const v = (raw ?? '').trim();
+  if (!v) return '';
+  // e.g. "20260406" → "06/04/2026"
+  if (v.length === 8 && /^\d{8}$/.test(v)) {
+    const yyyy = v.slice(0, 4);
+    const mm   = v.slice(4, 6);
+    const dd   = v.slice(6, 8);
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  return v; // already in DD/MM/YYYY or YYYY-MM-DD — pass through
+}
+
 // ── ALM pipe-delimited parser ────────────────────────────────
 export function parseALM(raw: string): ParseResult<DelistEvent> {
   const errors: string[] = [];
@@ -83,13 +98,14 @@ export function parseALM(raw: string): ParseResult<DelistEvent> {
     const prodName  = (parts[11] ?? '').trim();
     if (!skuRaw || !prodName) { errors.push(`Row ${i + 1}: missing SKU or product`); continue; }
 
+    const effectiveRaw = (parts[8] ?? '').trim();
     rows.push({
       sku_code: skuRaw,
       product_name: prodName,
-      category: '',
-      effective_date: (parts[8] ?? '').trim(),
-      outlet_number: (parts[3] ?? '').trim(),
-      outlet_id:     (parts[4] ?? '').trim(),
+      category:         (parts[6] ?? '').trim(),   // col 6 = Category_Desc
+      effective_date:   normalizeAlmDate(effectiveRaw),
+      outlet_number:    (parts[3] ?? '').trim(),
+      outlet_id:        (parts[4] ?? '').trim().replace(/^0+/, ''),
       upload_date:   new Date(),
     });
   }

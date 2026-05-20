@@ -1,6 +1,13 @@
 import { useState, useCallback, useRef } from 'react';
-import { writeCustomers, logUpload } from '../../lib/firebase';
-import { parseCustomerCSV } from '../../lib/parsers';
+import {
+  writeCustomers,
+  writeDelistEvents,
+  writeScanData,
+  writeDelistImpacts,
+  logUpload,
+  readAllCustomers,
+} from '../../lib/firebase';
+import { parseCustomerCSV, parseALM, parseOnTap } from '../../lib/parsers';
 
 interface UploadZoneProps {
   fileType: 'customers' | 'alm' | 'ontap';
@@ -27,25 +34,61 @@ export default function UploadZone({ fileType, onParsed }: UploadZoneProps) {
   const handleFile = useCallback(async (file: File) => {
     setBusy(true);
     setFileName(file.name);
+    const allErrors: string[] = [];
+    let rowsProcessed = 0;
+
     try {
       const raw = await file.text();
-      if (fileType !== 'customers') {
-        onParsed(fileType, 0, ['Parser not yet implemented for this file type.']);
-        setBusy(false);
-        return;
+
+      if (fileType === 'customers') {
+        const result = parseCustomerCSV(raw);
+        rowsProcessed = result.rows.length;
+        allErrors.push(...result.errors);
+        if (result.rows.length > 0) {
+          try {
+            const count = await writeCustomers(result.rows);
+            await logUpload('customers', file.name, count, result.errors);
+          } catch (fbErr) {
+            allErrors.push(`Firebase write failed: ${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
+          }
+        }
+
+      } else if (fileType === 'alm') {
+        const result = parseALM(raw);
+        rowsProcessed = result.rows.length;
+        allErrors.push(...result.errors);
+        if (result.rows.length > 0) {
+          try {
+            // fetch all customers for cross-reference
+            const customers = await readAllCustomers();
+            const evtCount = await writeDelistEvents(result.rows);
+            const impactCount = await writeDelistImpacts(result.rows, customers);
+            await logUpload('alm', file.name, evtCount, result.errors);
+            allErrors.push(`Cross-referenced ${impactCount} delist events to customer accounts.`);
+          } catch (fbErr) {
+            allErrors.push(`Firebase write failed: ${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
+          }
+        }
+
+      } else if (fileType === 'ontap') {
+        const result = parseOnTap(raw);
+        rowsProcessed = result.rows.length;
+        allErrors.push(...result.errors);
+        if (result.rows.length > 0) {
+          try {
+            const count = await writeScanData(result.rows);
+            await logUpload('ontap', file.name, count, result.errors);
+          } catch (fbErr) {
+            allErrors.push(`Firebase write failed: ${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
+          }
+        }
       }
-      const result = parseCustomerCSV(raw);
-      // Firebase write — will work once env vars are set
-      try {
-        const count = await writeCustomers(result.rows);
-        await logUpload('customers', file.name, count, result.errors);
-      } catch (fbErr) {
-        result.errors.push(`Firebase write failed: ${fbErr instanceof Error ? fbErr.message : String(fbErr)}`);
-      }
-      onParsed('customers', result.rows.length, result.errors);
+
     } catch (e: unknown) {
-      onParsed(fileType, 0, [e instanceof Error ? e.message : 'Unknown error']);
+      allErrors.push(e instanceof Error ? e.message : 'Unknown error');
     }
+
+    onParsed(fileType, rowsProcessed, allErrors);
     setBusy(false);
   }, [fileType, onParsed]);
 
